@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+publish/
+out/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# WebView2 runtime user-data (created at runtime)
+*.WebView2/
+EBWebView/
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

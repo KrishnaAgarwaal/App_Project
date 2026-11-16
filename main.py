@@ -7,6 +7,7 @@ import json
 import os
 import tkinter as tk
 from tkinter import messagebox
+from db import DatabaseManager, save_db_config
 
 
 class DetectiveGame:
@@ -29,8 +30,10 @@ class DetectiveGame:
         self.level_var = tk.IntVar(value=1)
         self.status_var = tk.StringVar(value="Status: Ready to investigate")
         self.selected_suspect_var = tk.StringVar(value="")
+        self.db_status_var = tk.StringVar(value="MySQL: Checking...")
 
         self.save_file_path = os.path.join(os.path.dirname(__file__), "savegame.json")
+        self.db = DatabaseManager()
 
         # ----------------------------------------------------
         # Python Checklist: 3. Lists
@@ -210,6 +213,32 @@ class DetectiveGame:
             command=self.root.quit,
         )
         exit_btn.pack(pady=6, fill=tk.X)
+
+        db_btn = tk.Button(
+            btn_frame,
+            text="⚙️  MySQL Database Settings",
+            font=("Helvetica", 10, "bold"),
+            fg="#7c2d12",
+            bg="#ffedd5",
+            highlightbackground="#0f172a",
+            padx=20,
+            pady=4,
+            relief=tk.RAISED,
+            cursor="hand2",
+            command=self.open_db_settings_dialog,
+        )
+        db_btn.pack(pady=6, fill=tk.X)
+
+        # Database connection indicator
+        self.update_home_db_status()
+        db_status_label = tk.Label(
+            self.home_frame,
+            textvariable=self.db_status_var,
+            font=("Helvetica", 10),
+            fg="#94a3b8",
+            bg="#0f172a",
+        )
+        db_status_label.pack(pady=(12, 0))
 
     # ========================================================
     # SCREEN 2: PLAY SCREEN
@@ -398,14 +427,38 @@ class DetectiveGame:
             fg="#334155",
             bg="#f1f5f9",
             highlightbackground="#1e293b",
-            padx=10,
+            padx=8,
             command=self.return_to_home,
         )
-        home_btn.pack(side=tk.RIGHT, padx=4)
+        home_btn.pack(side=tk.RIGHT, padx=3)
+
+        db_btn = tk.Button(
+            bottom_bar,
+            text="⚙️ DB",
+            font=("Helvetica", 10, "bold"),
+            fg="#7c2d12",
+            bg="#ffedd5",
+            highlightbackground="#1e293b",
+            padx=8,
+            command=self.open_db_settings_dialog,
+        )
+        db_btn.pack(side=tk.RIGHT, padx=3)
+
+        load_btn = tk.Button(
+            bottom_bar,
+            text="📂 Load",
+            font=("Helvetica", 10, "bold"),
+            fg="#15803d",
+            bg="#dcfce7",
+            highlightbackground="#1e293b",
+            padx=8,
+            command=self.load_game,
+        )
+        load_btn.pack(side=tk.RIGHT, padx=3)
 
         save_btn = tk.Button(
             bottom_bar,
-            text="💾 Save",
+            text="💾 Save (MySQL)",
             font=("Helvetica", 10, "bold"),
             fg="#1e40af",
             bg="#dbeafe",
@@ -413,7 +466,7 @@ class DetectiveGame:
             padx=10,
             command=self.save_game,
         )
-        save_btn.pack(side=tk.RIGHT, padx=4)
+        save_btn.pack(side=tk.RIGHT, padx=3)
 
         accuse_btn = tk.Button(
             bottom_bar,
@@ -425,7 +478,7 @@ class DetectiveGame:
             padx=12,
             command=self.open_accusation_dialog,
         )
-        accuse_btn.pack(side=tk.RIGHT, padx=8)
+        accuse_btn.pack(side=tk.RIGHT, padx=6)
 
     # ========================================================
     # GAMEPLAY LOGIC & ACTIONS
@@ -575,56 +628,363 @@ class DetectiveGame:
             messagebox.showerror("Mistake!", result_msg)
 
     # ========================================================
-    # FILE HANDLING: SAVE & LOAD PROGRESS
+    # FILE HANDLING: SAVE & LOAD PROGRESS (MySQL & Local Backup)
     # Python Checklist: 9. File handling
     # ========================================================
+    def update_home_db_status(self):
+        """Checks MySQL connection in the background and updates the home label."""
+        ok, msg = self.db.test_connection()
+        if ok:
+            db_name = self.db.config.get("database", "detective_game")
+            user = self.db.config.get("user", "root")
+            self.db_status_var.set(f"🟢 MySQL Connected: {user}@{self.db.config.get('host', 'localhost')} (`{db_name}`)")
+        else:
+            self.db_status_var.set("⚪ MySQL: Not configured (Click 'MySQL Database Settings' above)")
+
+    def open_db_settings_dialog(self):
+        """Displays modal to configure MySQL credentials and test the connection."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("MySQL Database Settings")
+        dialog.geometry("480x420")
+        dialog.configure(bg="#0f172a")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        heading = tk.Label(
+            dialog,
+            text="⚙️ MySQL Connection Settings",
+            font=("Helvetica", 14, "bold"),
+            fg="#facc15",
+            bg="#0f172a",
+        )
+        heading.pack(pady=(18, 10))
+
+        form_frame = tk.Frame(dialog, bg="#1e293b", padx=20, pady=15, bd=2, relief=tk.GROOVE)
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=5)
+
+        fields = [
+            ("Host:", "host", self.db.config.get("host", "localhost")),
+            ("Port:", "port", str(self.db.config.get("port", 3306))),
+            ("Username:", "user", self.db.config.get("user", "root")),
+            ("Password:", "password", self.db.config.get("password", "")),
+            ("Database:", "database", self.db.config.get("database", "detective_game")),
+        ]
+
+        entries = {}
+        for row_idx, (label_text, key, val) in enumerate(fields):
+            lbl = tk.Label(
+                form_frame,
+                text=label_text,
+                font=("Helvetica", 10, "bold"),
+                fg="#f8fafc",
+                bg="#1e293b",
+            )
+            lbl.grid(row=row_idx, column=0, sticky=tk.W, pady=6, padx=6)
+
+            is_pwd = key == "password"
+            entry = tk.Entry(
+                form_frame,
+                font=("Helvetica", 11),
+                bg="#ffffff",
+                fg="#0f172a",
+                insertbackground="#0f172a",
+                show="*" if is_pwd else "",
+                width=24,
+            )
+            entry.insert(0, val)
+            entry.grid(row=row_idx, column=1, sticky=tk.EW, pady=6, padx=6)
+            entries[key] = entry
+
+        # Test Connection Action
+        def do_test():
+            cfg = {
+                "host": entries["host"].get().strip(),
+                "port": int(entries["port"].get().strip() or 3306),
+                "user": entries["user"].get().strip(),
+                "password": entries["password"].get(),
+                "database": entries["database"].get().strip(),
+            }
+            ok, err = self.db.test_connection(cfg)
+            if ok:
+                messagebox.showinfo("Connection Success", "✅ Successfully connected to MySQL server!", parent=dialog)
+            else:
+                messagebox.showerror("Connection Failed", f"❌ Connection Error:\n{err}", parent=dialog)
+
+        # Save and Apply Action
+        def do_save():
+            try:
+                port_val = int(entries["port"].get().strip() or 3306)
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Port must be an integer (e.g. 3306).", parent=dialog)
+                return
+
+            new_cfg = {
+                "host": entries["host"].get().strip(),
+                "port": port_val,
+                "user": entries["user"].get().strip(),
+                "password": entries["password"].get(),
+                "database": entries["database"].get().strip(),
+            }
+            save_db_config(new_cfg)
+            self.db.config = new_cfg
+            initialized = self.db.init_database()
+            self.update_home_db_status()
+
+            if initialized:
+                messagebox.showinfo("Saved", "✅ MySQL settings saved and database initialized!", parent=dialog)
+                dialog.destroy()
+            else:
+                ok, err = self.db.test_connection()
+                messagebox.showwarning(
+                    "Saved with Warning",
+                    f"Settings saved, but could not initialize database.\nDetails: {err}",
+                    parent=dialog,
+                )
+                dialog.destroy()
+
+        # Action Buttons
+        btn_box = tk.Frame(dialog, bg="#0f172a")
+        btn_box.pack(pady=15)
+
+        test_btn = tk.Button(
+            btn_box,
+            text="🔌 Test Connection",
+            font=("Helvetica", 10, "bold"),
+            fg="#1e40af",
+            bg="#dbeafe",
+            highlightbackground="#0f172a",
+            padx=12,
+            pady=4,
+            command=do_test,
+        )
+        test_btn.pack(side=tk.LEFT, padx=6)
+
+        save_cfg_btn = tk.Button(
+            btn_box,
+            text="💾 Save & Connect",
+            font=("Helvetica", 10, "bold"),
+            fg="#065f46",
+            bg="#d1fae5",
+            highlightbackground="#0f172a",
+            padx=12,
+            pady=4,
+            command=do_save,
+        )
+        save_cfg_btn.pack(side=tk.LEFT, padx=6)
+
+        cancel_btn = tk.Button(
+            btn_box,
+            text="Cancel",
+            font=("Helvetica", 10),
+            fg="#374151",
+            bg="#f3f4f6",
+            highlightbackground="#0f172a",
+            padx=10,
+            pady=4,
+            command=dialog.destroy,
+        )
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+
     def save_game(self):
-        """Saves current player progress to a JSON save file."""
-        game_data = {
-            "player_name": self.player_name_var.get(),
-            "score": self.score_var.get(),
-            "level": self.level_var.get(),
+        """Saves current player progress to MySQL database with local JSON file fallback."""
+        player_name = self.player_name_var.get().strip() or "Holmes"
+        score = self.score_var.get()
+        level = self.level_var.get()
+
+        # Step 1: Save local backup copy
+        local_data = {
+            "player_name": player_name,
+            "score": score,
+            "level": level,
             "discovered_clues": self.discovered_clues,
             "questioned_suspects": self.questioned_suspects,
         }
-
         try:
             with open(self.save_file_path, "w", encoding="utf-8") as f:
-                json.dump(game_data, f, indent=4)
-            messagebox.showinfo("Game Saved", f"Progress successfully saved to {os.path.basename(self.save_file_path)}!")
-        except IOError as e:
-            messagebox.showerror("Save Error", f"Failed to save game: {e}")
+                json.dump(local_data, f, indent=4)
+        except IOError:
+            pass
+
+        # Step 2: Save to MySQL
+        success, message = self.db.save_game(
+            player_name=player_name,
+            score=score,
+            level=level,
+            discovered_clues=self.discovered_clues,
+            questioned_suspects=self.questioned_suspects,
+        )
+
+        if success:
+            self.status_var.set(f"Saved to MySQL ({self.db.config['database']}.game_saves)")
+            messagebox.showinfo(
+                "Game Saved",
+                f"✅ Progress for Detective '{player_name}' saved to MySQL!\n\n"
+                f"Database: {self.db.config['database']}\n"
+                f"Table: game_saves\n"
+                f"(Local backup file '{os.path.basename(self.save_file_path)}' also updated)",
+            )
+        else:
+            self.status_var.set("MySQL save failed (saved to local backup).")
+            open_settings = messagebox.askyesno(
+                "MySQL Save Error",
+                f"Could not save to MySQL:\n{message}\n\n"
+                f"✅ Don't worry! Your game was safely saved to local file: {os.path.basename(self.save_file_path)}.\n\n"
+                f"Would you like to open MySQL Settings now to configure or check your credentials?",
+            )
+            if open_settings:
+                self.open_db_settings_dialog()
 
     def load_game(self):
-        """Loads player progress from a JSON save file."""
+        """Loads player progress from MySQL or local JSON backup."""
+        saves = self.db.get_all_saves()
+        if saves:
+            self.open_load_dialog(saves)
+        else:
+            self.load_from_local_file()
+
+    def open_load_dialog(self, saves: list):
+        """Displays saved detective records from MySQL allowing player to select one."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Saved Detective")
+        dialog.geometry("520x400")
+        dialog.configure(bg="#0f172a")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        heading = tk.Label(
+            dialog,
+            text="📂 Saved Detectives in MySQL",
+            font=("Helvetica", 13, "bold"),
+            fg="#facc15",
+            bg="#0f172a",
+        )
+        heading.pack(pady=(15, 8))
+
+        sub = tk.Label(
+            dialog,
+            text="Select a case file to resume your investigation:",
+            font=("Helvetica", 10),
+            fg="#94a3b8",
+            bg="#0f172a",
+        )
+        sub.pack(pady=(0, 10))
+
+        list_frame = tk.Frame(dialog, bg="#1e293b", bd=2, relief=tk.GROOVE)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        listbox = tk.Listbox(
+            list_frame,
+            font=("Menlo", 10),
+            bg="#020617",
+            fg="#f8fafc",
+            selectbackground="#2563eb",
+            selectforeground="#ffffff",
+            yscrollcommand=scrollbar.set,
+            height=8,
+        )
+        listbox.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        # Populate listbox with saves
+        for s in saves:
+            line = f"🕵️ {s['player_name']:<16} | Score: {s['score']:<4} | Ch.{s['level']} | {str(s.get('saved_at', ''))[:16]}"
+            listbox.insert(tk.END, line)
+        listbox.select_set(0)
+
+        def do_load_selected():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+            selected_name = saves[idx]["player_name"]
+            dialog.destroy()
+            ok, data, err = self.db.load_game(selected_name)
+            if ok and data:
+                self.apply_loaded_state(data, source="MySQL")
+            else:
+                messagebox.showerror("Load Failed", f"Failed to load record from MySQL:\n{err}")
+
+        btn_box = tk.Frame(dialog, bg="#0f172a")
+        btn_box.pack(pady=15)
+
+        load_btn = tk.Button(
+            btn_box,
+            text="▶ Load Selected Detective",
+            font=("Helvetica", 10, "bold"),
+            fg="#065f46",
+            bg="#d1fae5",
+            highlightbackground="#0f172a",
+            padx=12,
+            pady=5,
+            command=do_load_selected,
+        )
+        load_btn.pack(side=tk.LEFT, padx=6)
+
+        local_btn = tk.Button(
+            btn_box,
+            text="📄 Load from Local File",
+            font=("Helvetica", 10),
+            fg="#1e40af",
+            bg="#dbeafe",
+            highlightbackground="#0f172a",
+            padx=10,
+            pady=5,
+            command=lambda: [dialog.destroy(), self.load_from_local_file()],
+        )
+        local_btn.pack(side=tk.LEFT, padx=6)
+
+        cancel_btn = tk.Button(
+            btn_box,
+            text="Cancel",
+            font=("Helvetica", 10),
+            fg="#374151",
+            bg="#f3f4f6",
+            highlightbackground="#0f172a",
+            padx=10,
+            pady=5,
+            command=dialog.destroy,
+        )
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+
+    def apply_loaded_state(self, game_data: dict, source: str = "MySQL"):
+        """Applies loaded dictionary state to game variables and rebuilds screen."""
+        self.player_name_var.set(game_data.get("player_name", "Holmes"))
+        self.score_var.set(game_data.get("score", 100))
+        self.level_var.set(game_data.get("level", 1))
+        self.discovered_clues = game_data.get("discovered_clues", [])
+        self.questioned_suspects = game_data.get("questioned_suspects", [])
+
+        self.create_play_screen()
+
+        restore_msg = (
+            f"📂 RESTORED SAVE FILE VIA {source.upper()}:\n"
+            f"• Detective: {self.player_name_var.get()}\n"
+            f"• Current Score: {self.score_var.get()} pts\n"
+            f"• Clues Found: {len(self.discovered_clues)}/4\n"
+            f"• Suspects Interrogated: {len(self.questioned_suspects)}/3\n"
+            f"{'='*50}\n\n"
+        )
+        self.log_message(restore_msg)
+        messagebox.showinfo("Game Loaded", f"Successfully loaded investigation for Detective {self.player_name_var.get()} ({source})!")
+
+    def load_from_local_file(self):
+        """Loads player progress from the local JSON save file."""
         if not os.path.exists(self.save_file_path):
-            messagebox.showinfo("No Save File", "No previous saved game found. Start a new investigation!")
+            messagebox.showinfo(
+                "No Saves Found",
+                "No saved records found in MySQL or local file.\nStart a new investigation and click 'Save (MySQL)'!",
+            )
             return
 
         try:
             with open(self.save_file_path, "r", encoding="utf-8") as f:
                 game_data = json.load(f)
-
-            self.player_name_var.set(game_data.get("player_name", "Holmes"))
-            self.score_var.set(game_data.get("score", 100))
-            self.level_var.set(game_data.get("level", 1))
-            self.discovered_clues = game_data.get("discovered_clues", [])
-            self.questioned_suspects = game_data.get("questioned_suspects", [])
-
-            self.create_play_screen()
-
-            # Refresh log with restored state
-            restore_msg = (
-                f"📂 RESTORED SAVE FILE FOR DETECTIVE {self.player_name_var.get()}:\n"
-                f"• Restored Score: {self.score_var.get()} pts\n"
-                f"• Clues Previously Found: {len(self.discovered_clues)}/4\n"
-                f"• Suspects Interrogated: {len(self.questioned_suspects)}/3\n"
-                f"{'='*50}\n\n"
-            )
-            self.log_message(restore_msg)
-            messagebox.showinfo("Game Loaded", "Investigation progress successfully loaded!")
+            self.apply_loaded_state(game_data, source="Local File")
         except (IOError, json.JSONDecodeError) as e:
-            messagebox.showerror("Load Error", f"Failed to load game file: {e}")
+            messagebox.showerror("Load Error", f"Failed to read local save file: {e}")
 
     def return_to_home(self):
         """Confirms and returns to the home screen."""

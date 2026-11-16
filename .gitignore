@@ -8,3 +8,4 @@ __pycache__/
 
 # Save game files
 savegame.json
+db_config.json

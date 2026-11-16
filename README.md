@@ -17,15 +17,31 @@ The famous **Midnight Emerald** has vanished from Lord Harrington's private stud
 - **Evidence Inspection**: Discover hidden clues that award score points and build your case.
 - **Scrollable Detective Notebook**: Integrated case file and real-time investigation log.
 - **High-Contrast Modern UI**: Optimized color scheme and borders for clear readability across operating systems (macOS, Windows, Linux).
-- **Persistent Game Saves**: Save your progress at any time and resume right where you left off (`savegame.json`).
+- **Persistent Game Saves (MySQL & JSON)**: Save and load progress directly to/from a **MySQL** database (`game_saves` table) with multi-profile support and automatic local backup (`savegame.json`).
+- **Database Settings Manager**: In-game GUI dialog to test connection, configure MySQL host, user, and password on the fly.
 - **Accusation System**: Dynamic grading based on clues found, suspect evaluations, and deductive accuracy.
 
 ## 🚀 How to Run
 
 ### Prerequisites
 - Python 3.8+ (includes Tkinter by default on most platforms)
+- MySQL Server (optional but recommended for database saves)
+
+### Installation
+Install the database driver:
+```bash
+pip install -r requirements.txt
+```
 
 ### Launching the Game
 ```bash
 python3 main.py
 ```
+
+### 🗄️ MySQL Database Setup
+The game automatically creates the database (`detective_game`) and table (`game_saves`) upon your first save or connection test.
+
+You can configure your MySQL credentials directly inside the game:
+1. Click **⚙️ MySQL Database Settings** on the home screen.
+2. Enter your MySQL username and password.
+3. Click **🔌 Test Connection** and then **💾 Save & Connect**.
